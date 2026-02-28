@@ -18,4 +18,6 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     List<Restaurant> findByStatus(RestaurantStatus status);
     
     Optional<Restaurant> findById(Long id);
+    
+    Long countByStatus(RestaurantStatus status);
 }

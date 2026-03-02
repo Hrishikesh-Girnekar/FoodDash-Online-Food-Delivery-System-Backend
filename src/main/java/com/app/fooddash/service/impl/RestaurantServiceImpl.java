@@ -1,15 +1,21 @@
 package com.app.fooddash.service.impl;
 
 import com.app.fooddash.dto.request.CreateRestaurantRequest;
+import com.app.fooddash.dto.response.OwnerDashboardStatsResponse;
 import com.app.fooddash.dto.response.RestaurantResponse;
 import com.app.fooddash.entity.Restaurant;
 import com.app.fooddash.entity.User;
 import com.app.fooddash.enums.RestaurantStatus;
 import com.app.fooddash.exception.ResourceNotFoundException;
+import com.app.fooddash.repository.OrderRepository;
 import com.app.fooddash.repository.RestaurantRepository;
 import com.app.fooddash.repository.UserRepository;
 import com.app.fooddash.service.RestaurantService;
 import com.app.fooddash.util.AuthUtil;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.LocalDateTime;
+import java.util.Objects;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,193 +29,204 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class RestaurantServiceImpl implements RestaurantService {
 
-    private final RestaurantRepository restaurantRepository;
-    private final UserRepository userRepository;
-    private final AuthUtil authUtil;
+	private final RestaurantRepository restaurantRepository;
+	private final UserRepository userRepository;
+	private final OrderRepository orderRepository;
+	private final AuthUtil authUtil;
 
-    @Override
-    public void createRestaurant(CreateRestaurantRequest request) {
+	@Override
+	public void createRestaurant(CreateRestaurantRequest request) {
 
-        String email = SecurityContextHolder
-                .getContext()
-                .getAuthentication()
-                .getName();
+		String email = SecurityContextHolder.getContext().getAuthentication().getName();
 
-        User owner = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User owner = userRepository.findByEmail(email)
+				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Restaurant restaurant = new Restaurant();
+		Restaurant restaurant = new Restaurant();
 
-        restaurant.setName(request.getName());
-        restaurant.setDescription(request.getDescription());
-        restaurant.setPhone(request.getPhone());
-        restaurant.setCuisine(request.getCuisine());
-        restaurant.setAddress(request.getAddress());
-        restaurant.setCity(request.getCity());
-        restaurant.setOpeningTime(request.getOpeningTime());
-        restaurant.setClosingTime(request.getClosingTime());
-        restaurant.setCostForTwo(request.getCostForTwo());
-        restaurant.setImageUrl(request.getImageUrl());
+		restaurant.setName(request.getName());
+		restaurant.setDescription(request.getDescription());
+		restaurant.setPhone(request.getPhone());
+		restaurant.setCuisine(request.getCuisine());
+		restaurant.setAddress(request.getAddress());
+		restaurant.setCity(request.getCity());
+		restaurant.setOpeningTime(request.getOpeningTime());
+		restaurant.setClosingTime(request.getClosingTime());
+		restaurant.setCostForTwo(request.getCostForTwo());
+		restaurant.setImageUrl(request.getImageUrl());
 
-        restaurant.setRating(4.2);
-        restaurant.setTotalReviews(120);
-        restaurant.setIsOpen(true);
-        restaurant.setIsApproved(false);
+		restaurant.setRating(4.2);
+		restaurant.setTotalReviews(120);
+		restaurant.setIsOpen(true);
+		restaurant.setIsApproved(false);
 
-        restaurant.setOwner(owner);
+		restaurant.setOwner(owner);
 
-        restaurantRepository.save(restaurant);
-    }
+		restaurantRepository.save(restaurant);
+	}
 
-    @Override
-    public void approveRestaurant(Long restaurantId) {
+	@Override
+	public void approveRestaurant(Long restaurantId) {
 
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(restaurantId)
+				.orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
-        restaurant.setIsApproved(true);
+		restaurant.setIsApproved(true);
 
-        restaurantRepository.save(restaurant);
-    }
+		restaurantRepository.save(restaurant);
+	}
 
-    @Override
-    public List<RestaurantResponse> getApprovedRestaurants() {
+	@Override
+	public List<RestaurantResponse> getApprovedRestaurants() {
 
-        return restaurantRepository
-                .findByStatus(RestaurantStatus.APPROVED)
-                .stream()
-                .map(r -> new RestaurantResponse(
-                        r.getId(),
-                        r.getName(),
-                        r.getDescription(),
-                        r.getPhone(),
-                        r.getCuisine(),
-                        r.getAddress(),
-                        r.getCity(),
-                        r.getOpeningTime(),
-                        r.getClosingTime(),
-                        r.getCostForTwo(),
-                        r.getImageUrl(),
-                        r.getRating(),
-                        r.getTotalReviews(),
-                        r.getIsOpen(),
-                        r.getStatus(),
-                        r.getCreatedAt()
-                ))
-                .toList();
-    }
-    
-    @Override
-    public List<RestaurantResponse> getAllRestaurants() {
-        return restaurantRepository.findAll()
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-    }
-    
-    @Override
-    public List<RestaurantResponse> getOwnerRestaurants() {
+		return restaurantRepository.findByStatus(RestaurantStatus.APPROVED).stream()
+				.map(r -> new RestaurantResponse(r.getId(), r.getName(), r.getDescription(), r.getPhone(),
+						r.getCuisine(), r.getAddress(), r.getCity(), r.getOpeningTime(), r.getClosingTime(),
+						r.getCostForTwo(), r.getImageUrl(), r.getRating(), r.getTotalReviews(), r.getIsOpen(),
+						r.getStatus(), r.getCreatedAt()))
+				.toList();
+	}
 
-        User owner = authUtil.getCurrentUser();
+	@Override
+	public List<RestaurantResponse> getAllRestaurants() {
+		return restaurantRepository.findAll().stream().map(this::mapToResponse).toList();
+	}
 
-        return restaurantRepository.findByOwner(owner)
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-    }
-    
-    @Override
-    public void deleteRestaurant(Long id) {
+	@Override
+	public List<RestaurantResponse> getOwnerRestaurants() {
 
-        User owner = authUtil.getCurrentUser();
+		User owner = authUtil.getCurrentUser();
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		return restaurantRepository.findByOwner(owner).stream().map(this::mapToResponse).toList();
+	}
 
-        if (!restaurant.getOwner().getId().equals(owner.getId())) {
-            throw new RuntimeException("You are not allowed to delete this restaurant");
-        }
+	@Override
+	public void deleteRestaurant(Long id) {
 
-        restaurantRepository.delete(restaurant);
-    }
-    
-    @Override
-    @Transactional
-    public void toggleRestaurantStatus(Long id) {
+		User owner = authUtil.getCurrentUser();
 
-        User owner = authUtil.getCurrentUser();
+		Restaurant restaurant = restaurantRepository.findById(id)
+				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			throw new RuntimeException("You are not allowed to delete this restaurant");
+		}
 
-        if (!restaurant.getOwner().getId().equals(owner.getId())) {
-            throw new RuntimeException("You are not allowed to update this restaurant");
-        }
+		restaurantRepository.delete(restaurant);
+	}
 
-        // ✅ Null-safe toggle
-        Boolean currentStatus = restaurant.getIsOpen();
+	@Override
+	@Transactional
+	public void toggleRestaurantStatus(Long id) {
 
-        if (currentStatus == null) {
-            restaurant.setIsOpen(true);  // default fallback
-        } else {
-            restaurant.setIsOpen(!currentStatus);
-        }
-    }
-    
-    @Override
-    public void updateRestaurant(Long id, CreateRestaurantRequest request) {
+		User owner = authUtil.getCurrentUser();
 
-        User owner = authUtil.getCurrentUser();
+		Restaurant restaurant = restaurantRepository.findById(id)
+				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			throw new RuntimeException("You are not allowed to update this restaurant");
+		}
 
-        if (!restaurant.getOwner().getId().equals(owner.getId())) {
-            throw new RuntimeException("You are not allowed to update this restaurant");
-        }
+		// ✅ Null-safe toggle
+		Boolean currentStatus = restaurant.getIsOpen();
 
-        restaurant.setName(request.getName());
-        restaurant.setDescription(request.getDescription());
-        restaurant.setPhone(request.getPhone());
-        restaurant.setCuisine(request.getCuisine());
-        restaurant.setAddress(request.getAddress());
-        restaurant.setCity(request.getCity());
-        restaurant.setOpeningTime(request.getOpeningTime());
-        restaurant.setClosingTime(request.getClosingTime());
-        restaurant.setCostForTwo(request.getCostForTwo());
-        restaurant.setImageUrl(request.getImageUrl());
+		if (currentStatus == null) {
+			restaurant.setIsOpen(true); // default fallback
+		} else {
+			restaurant.setIsOpen(!currentStatus);
+		}
+	}
 
-        restaurantRepository.save(restaurant);
-    }
-    
-    @Override
-    public RestaurantResponse getRestaurantById(Long id) {
+	@Override
+	public void updateRestaurant(Long id, CreateRestaurantRequest request) {
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		User owner = authUtil.getCurrentUser();
 
-        return mapToResponse(restaurant);
-    }
+		Restaurant restaurant = restaurantRepository.findById(id)
+				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
 
-    // ================= MAPPER METHOD =================
-    private RestaurantResponse mapToResponse(Restaurant restaurant) {
+		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			throw new RuntimeException("You are not allowed to update this restaurant");
+		}
 
-        return RestaurantResponse.builder()
-                .id(restaurant.getId())
-                .name(restaurant.getName())
-                .description(restaurant.getDescription())
-                .phone(restaurant.getPhone())
-                .cuisine(restaurant.getCuisine())
-                .address(restaurant.getAddress())
-                .city(restaurant.getCity())
-                .openingTime(restaurant.getOpeningTime())
-                .closingTime(restaurant.getClosingTime())
-                .costForTwo(restaurant.getCostForTwo())
-                .rating(restaurant.getRating())
-                .status(restaurant.getStatus())
-                .imageUrl(restaurant.getImageUrl())
-                .isOpen(restaurant.getIsOpen())
-                .createdAt(restaurant.getCreatedAt())
-                .build();
-    }
+		restaurant.setName(request.getName());
+		restaurant.setDescription(request.getDescription());
+		restaurant.setPhone(request.getPhone());
+		restaurant.setCuisine(request.getCuisine());
+		restaurant.setAddress(request.getAddress());
+		restaurant.setCity(request.getCity());
+		restaurant.setOpeningTime(request.getOpeningTime());
+		restaurant.setClosingTime(request.getClosingTime());
+		restaurant.setCostForTwo(request.getCostForTwo());
+		restaurant.setImageUrl(request.getImageUrl());
+
+		restaurantRepository.save(restaurant);
+	}
+
+	@Override
+	public RestaurantResponse getRestaurantById(Long id) {
+
+		Restaurant restaurant = restaurantRepository.findById(id)
+				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
+
+		return mapToResponse(restaurant);
+	}
+
+	@Override
+	public OwnerDashboardStatsResponse getOwnerDashboardStats() {
+
+	    User owner = authUtil.getCurrentUser();  // however you fetch logged in user
+
+	    List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
+
+	    if (restaurants.isEmpty()) {
+	        return new OwnerDashboardStatsResponse(0L, 0L, 0.0, 0.0);
+	    }
+
+	    List<Long> restaurantIds = restaurants.stream()
+	            .map(Restaurant::getId)
+	            .toList();
+
+	    // ✅ Total Orders
+	    Long totalOrders = orderRepository.countByRestaurantIdIn(restaurantIds);
+
+	    // ✅ Today's Orders
+	    LocalDate today = LocalDate.now();
+	    Long todayOrders = orderRepository.countByRestaurantIdInAndCreatedAtBetween(
+	            restaurantIds,
+	            today.atStartOfDay(),
+	            today.atTime(LocalTime.MAX)
+	    );
+
+	    // ✅ Total Revenue
+	    Double totalRevenue = orderRepository.sumRevenueByRestaurantIds(restaurantIds);
+	    if (totalRevenue == null) totalRevenue = 0.0;
+
+	    // ✅ Average Rating (from Restaurant table)
+	    Double avgRating = restaurants.stream()
+	            .map(Restaurant::getRating)
+	            .filter(Objects::nonNull)
+	            .mapToDouble(Double::doubleValue)
+	            .average()
+	            .orElse(0.0);
+
+	    return new OwnerDashboardStatsResponse(
+	            todayOrders,
+	            totalOrders,
+	            totalRevenue,
+	            Math.round(avgRating * 10.0) / 10.0
+	    );
+	}
+
+	// ================= MAPPER METHOD =================
+	private RestaurantResponse mapToResponse(Restaurant restaurant) {
+
+		return RestaurantResponse.builder().id(restaurant.getId()).name(restaurant.getName())
+				.description(restaurant.getDescription()).phone(restaurant.getPhone()).cuisine(restaurant.getCuisine())
+				.address(restaurant.getAddress()).city(restaurant.getCity()).openingTime(restaurant.getOpeningTime())
+				.closingTime(restaurant.getClosingTime()).costForTwo(restaurant.getCostForTwo())
+				.rating(restaurant.getRating()).status(restaurant.getStatus()).imageUrl(restaurant.getImageUrl())
+				.isOpen(restaurant.getIsOpen()).createdAt(restaurant.getCreatedAt()).build();
+	}
 }

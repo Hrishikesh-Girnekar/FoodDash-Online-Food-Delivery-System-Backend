@@ -2,6 +2,7 @@ package com.app.fooddash.service;
 
 import java.util.List;
 import com.app.fooddash.dto.request.CreateRestaurantRequest;
+import com.app.fooddash.dto.response.OwnerDashboardStatsResponse;
 import com.app.fooddash.dto.response.RestaurantResponse;
 
 public interface RestaurantService {
@@ -23,4 +24,6 @@ public interface RestaurantService {
     void toggleRestaurantStatus(Long id);
     
     RestaurantResponse getRestaurantById(Long id);
+    
+    OwnerDashboardStatsResponse getOwnerDashboardStats();
 }

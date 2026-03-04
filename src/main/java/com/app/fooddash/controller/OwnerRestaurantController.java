@@ -3,6 +3,7 @@ package com.app.fooddash.controller;
 import com.app.fooddash.dto.request.CreateRestaurantRequest;
 import com.app.fooddash.dto.response.ApiResponse;
 import com.app.fooddash.dto.response.OwnerDashboardStatsResponse;
+import com.app.fooddash.dto.response.RecentOrderResponse;
 import com.app.fooddash.dto.response.RestaurantResponse;
 import com.app.fooddash.service.RestaurantService;
 
@@ -11,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -76,5 +79,17 @@ public class OwnerRestaurantController {
 		OwnerDashboardStatsResponse stats = restaurantService.getOwnerDashboardStats();
 
 		return ResponseEntity.ok(new ApiResponse<>(true, "Dashboard stats fetched successfully.", stats));
+	}
+
+	@GetMapping("/dashboard/recent-orders")
+	public ResponseEntity<ApiResponse<List<RecentOrderResponse>>> getRecentOrders(
+	        Authentication authentication) {
+
+	    List<RecentOrderResponse> orders =
+	            restaurantService.getRecentOrders(authentication.getName());
+
+	    return ResponseEntity.ok(
+	            new ApiResponse<>(true, "Recent orders fetched successfully.", orders)
+	    );
 	}
 }

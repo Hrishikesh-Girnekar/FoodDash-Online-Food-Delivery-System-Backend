@@ -138,7 +138,9 @@ public class AuthServiceImpl implements AuthService {
 		User user = userRepository.findByEmail(userDetails.getUsername())
 				.orElseThrow(() -> new BadRequestException("User not found"));
 
-		String token = jwtService.generateToken(userDetails.getUsername());
+//		String token = jwtService.generateToken(userDetails.getUsername());
+		String accessToken = jwtService.generateAccessToken(user.getEmail());
+		String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
 		List<RestaurantSummaryDto> restaurantDtos = List.of();
 
@@ -156,7 +158,83 @@ public class AuthServiceImpl implements AuthService {
 //                .fullname(user.getFullName())
 //                .restaurants(restaurantDtos)
 //                .build();
-		return new LoginResponse(token, role, user.getFullName(), restaurantDtos);
+		return new LoginResponse(accessToken, refreshToken, role, user.getFullName(), restaurantDtos);
+	}
+
+//	@Override
+//	public LoginResponse refreshToken(String refreshToken) {
+//
+//		try {
+//			String email = jwtService.extractUsername(refreshToken);
+//
+//			if (!jwtService.isTokenValid(refreshToken, email)) {
+//				throw new RuntimeException("Invalid refresh token");
+//			}
+//
+//			User user = userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
+//
+//			String newAccessToken = jwtService.generateAccessToken(email);
+//			System.out.println("Refresh token received: " + refreshToken);
+//			System.out.println("Extracted email: " + email);
+//			
+//			 // ✅ FIX: Get role safely from Set
+////		    String roleName = user.getRoles()
+////		            .stream()
+////		            .findFirst()
+////		            .map(Enum::name)
+////		            .orElse("USER");
+//
+//			List<RestaurantSummaryDto> restaurants = List.of();
+//			
+//
+//
+//			if (((Enum<RoleType>) user.getRoles()).name().equals("OWNER")) {
+//				restaurants = user.getRestaurants().stream().map(r -> new RestaurantSummaryDto(r.getId(), r.getName()))
+//						.toList();
+//			}
+//
+//			return new LoginResponse(newAccessToken, refreshToken, ((Enum<RoleType>) user.getRoles()).name(),
+//					user.getFullName(), restaurants);
+//
+//		} catch (Exception e) {
+//			e.printStackTrace(); 
+//			throw new RuntimeException("Refresh failed");
+//		}
+//	}
+	@Override
+	public LoginResponse refreshToken(String refreshToken) {
+
+		try {
+			String email = jwtService.extractUsername(refreshToken);
+
+			if (!jwtService.isTokenValid(refreshToken, email)) {
+				throw new RuntimeException("Invalid refresh token");
+			}
+
+			User user = userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
+
+			String newAccessToken = jwtService.generateAccessToken(email);
+
+			System.out.println("Refresh token received: " + refreshToken);
+			System.out.println("Extracted email: " + email);
+
+			// ✅ FIX: Extract role name from Role entity
+			String roleName = user.getRoles().stream().findFirst().map(role -> role.getName().name()) // <-- IMPORTANT
+					.orElse("USER");
+
+			List<RestaurantSummaryDto> restaurants = List.of();
+
+			if (roleName.equals("OWNER")) {
+				restaurants = user.getRestaurants().stream().map(r -> new RestaurantSummaryDto(r.getId(), r.getName()))
+						.toList();
+			}
+
+			return new LoginResponse(newAccessToken, refreshToken, roleName, user.getFullName(), restaurants);
+
+		} catch (Exception e) {
+			e.printStackTrace();
+			throw new RuntimeException("Refresh failed");
+		}
 	}
 
 	private User getCurrentUser() {

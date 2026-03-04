@@ -16,11 +16,35 @@ public class JwtService {
     // For production, move this to application.properties
     private static final String SECRET_KEY =
             "my_super_secret_key_my_super_secret_key_123456";
+    
+    private static final long ACCESS_TOKEN_EXPIRATION = 1000 * 60 * 15; // 15 min
+//    private static final long ACCESS_TOKEN_EXPIRATION = 1000 * 30;
+    private static final long REFRESH_TOKEN_EXPIRATION = 1000L * 60 * 60 * 24 * 7; // 7 days
 
-    private static final long JWT_EXPIRATION = 1000 * 60 * 60; // 1 hour
+//    private static final long JWT_EXPIRATION = 1000 * 60 * 60; // 1 hour
 
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
+    }
+    
+    public String generateAccessToken(String username) {
+
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + ACCESS_TOKEN_EXPIRATION))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+    
+    public String generateRefreshToken(String username) {
+
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + REFRESH_TOKEN_EXPIRATION))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
     }
 
     public String generateToken(String username) {
@@ -28,7 +52,7 @@ public class JwtService {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + JWT_EXPIRATION))
+                .setExpiration(new Date(System.currentTimeMillis() + ACCESS_TOKEN_EXPIRATION))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }

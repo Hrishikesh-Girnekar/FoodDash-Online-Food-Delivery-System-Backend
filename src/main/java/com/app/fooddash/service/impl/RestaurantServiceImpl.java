@@ -2,7 +2,9 @@ package com.app.fooddash.service.impl;
 
 import com.app.fooddash.dto.request.CreateRestaurantRequest;
 import com.app.fooddash.dto.response.OwnerDashboardStatsResponse;
+import com.app.fooddash.dto.response.RecentOrderResponse;
 import com.app.fooddash.dto.response.RestaurantResponse;
+import com.app.fooddash.entity.Order;
 import com.app.fooddash.entity.Restaurant;
 import com.app.fooddash.entity.User;
 import com.app.fooddash.enums.RestaurantStatus;
@@ -16,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
@@ -176,49 +179,71 @@ public class RestaurantServiceImpl implements RestaurantService {
 	@Override
 	public OwnerDashboardStatsResponse getOwnerDashboardStats() {
 
-	    User owner = authUtil.getCurrentUser();  // however you fetch logged in user
+		User owner = authUtil.getCurrentUser(); // however you fetch logged in user
 
+		List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
+
+		if (restaurants.isEmpty()) {
+			return new OwnerDashboardStatsResponse(0L, 0L, 0.0, 0.0);
+		}
+
+		List<Long> restaurantIds = restaurants.stream().map(Restaurant::getId).toList();
+
+		// ✅ Total Orders
+		Long totalOrders = orderRepository.countByRestaurantIdIn(restaurantIds);
+
+		// ✅ Today's Orders
+		LocalDate today = LocalDate.now();
+		Long todayOrders = orderRepository.countByRestaurantIdInAndCreatedAtBetween(restaurantIds, today.atStartOfDay(),
+				today.atTime(LocalTime.MAX));
+
+		// ✅ Total Revenue
+		Double totalRevenue = orderRepository.sumRevenueByRestaurantIds(restaurantIds);
+		if (totalRevenue == null)
+			totalRevenue = 0.0;
+
+		// ✅ Average Rating (from Restaurant table)
+		Double avgRating = restaurants.stream().map(Restaurant::getRating).filter(Objects::nonNull)
+				.mapToDouble(Double::doubleValue).average().orElse(0.0);
+
+		return new OwnerDashboardStatsResponse(todayOrders, totalOrders, totalRevenue,
+				Math.round(avgRating * 10.0) / 10.0);
+	}
+
+	public List<RecentOrderResponse> getRecentOrders(String email) {
+
+	    // 1️⃣ Get owner user
+	    User owner = userRepository.findByEmail(email)
+	            .orElseThrow(() -> new RuntimeException("Owner not found"));
+
+	    // 2️⃣ Get all restaurants of this owner
 	    List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
 
 	    if (restaurants.isEmpty()) {
-	        return new OwnerDashboardStatsResponse(0L, 0L, 0.0, 0.0);
+	        throw new RuntimeException("No restaurants found for this owner");
 	    }
 
-	    List<Long> restaurantIds = restaurants.stream()
-	            .map(Restaurant::getId)
-	            .toList();
+	    // 3️⃣ Fetch latest 3 orders across ALL restaurants of this owner
+	    List<Order> orders = orderRepository
+	            .findTop3ByRestaurantInOrderByCreatedAtDesc(restaurants);
 
-	    // ✅ Total Orders
-	    Long totalOrders = orderRepository.countByRestaurantIdIn(restaurantIds);
-
-	    // ✅ Today's Orders
-	    LocalDate today = LocalDate.now();
-	    Long todayOrders = orderRepository.countByRestaurantIdInAndCreatedAtBetween(
-	            restaurantIds,
-	            today.atStartOfDay(),
-	            today.atTime(LocalTime.MAX)
-	    );
-
-	    // ✅ Total Revenue
-	    Double totalRevenue = orderRepository.sumRevenueByRestaurantIds(restaurantIds);
-	    if (totalRevenue == null) totalRevenue = 0.0;
-
-	    // ✅ Average Rating (from Restaurant table)
-	    Double avgRating = restaurants.stream()
-	            .map(Restaurant::getRating)
-	            .filter(Objects::nonNull)
-	            .mapToDouble(Double::doubleValue)
-	            .average()
-	            .orElse(0.0);
-
-	    return new OwnerDashboardStatsResponse(
-	            todayOrders,
-	            totalOrders,
-	            totalRevenue,
-	            Math.round(avgRating * 10.0) / 10.0
-	    );
+	    // 4️⃣ Convert to DTO
+	    return orders.stream()
+	            .map(order -> new RecentOrderResponse(
+	                    order.getId(),
+	                    order.getUser().getFullName(),
+	                    buildItemsSummary(order),
+	                    order.getStatus().name(),
+	                    order.getTotalAmount()
+	            ))
+	            .collect(Collectors.toList());
 	}
-
+	
+	private String buildItemsSummary(Order order) {
+	    return order.getItems().stream()
+	            .map(item -> item.getMenuItem().getName() + " x" + item.getQuantity())
+	            .collect(Collectors.joining(", "));
+	}
 	// ================= MAPPER METHOD =================
 	private RestaurantResponse mapToResponse(Restaurant restaurant) {
 
@@ -229,4 +254,6 @@ public class RestaurantServiceImpl implements RestaurantService {
 				.rating(restaurant.getRating()).status(restaurant.getStatus()).imageUrl(restaurant.getImageUrl())
 				.isOpen(restaurant.getIsOpen()).createdAt(restaurant.getCreatedAt()).build();
 	}
+
+	
 }

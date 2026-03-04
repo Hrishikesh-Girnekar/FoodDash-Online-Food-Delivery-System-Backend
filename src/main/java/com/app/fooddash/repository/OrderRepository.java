@@ -37,6 +37,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.restaurant.id IN :ids")
     Double sumRevenueByRestaurantIds(@Param("ids") List<Long> ids);
+    
+//    List<Order> findByRestaurantOrderByCreatedAtAsc(Restaurant restaurant);
+    List<Order> findTop3ByRestaurantInOrderByCreatedAtDesc(List<Restaurant> restaurants);
 
 
 

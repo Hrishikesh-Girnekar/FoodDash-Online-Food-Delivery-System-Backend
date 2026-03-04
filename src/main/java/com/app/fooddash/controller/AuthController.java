@@ -10,6 +10,10 @@ import com.app.fooddash.dto.response.ApiResponse;
 import com.app.fooddash.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,7 +28,6 @@ public class AuthController {
 	@PostMapping("/register")
 	public ResponseEntity<ApiResponse<Void>> register(@Valid @RequestBody RegisterRequest request) {
 		authService.register(request);
-
 		return ResponseEntity.ok(new ApiResponse<>(true, "User registered successfully", null));
 	}
 
@@ -35,6 +38,41 @@ public class AuthController {
 		System.out.println(response.getAccessToken());
 
 		return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", response));
+	}
+
+//	@PostMapping("/refresh")
+//	public ResponseEntity<ApiResponse<LoginResponse>> refresh(
+//	        @RequestBody String refreshToken
+//	) {
+//
+//	    LoginResponse response = authService.refreshToken(refreshToken);
+//
+//	    return ResponseEntity.ok(
+//	            new ApiResponse<>(true, "Token refreshed", response)
+//	    );
+//	}
+
+	@PostMapping("/refresh")
+	public ResponseEntity<ApiResponse<LoginResponse>> refresh(@RequestBody Map<String, String> body) {
+
+		try {
+
+			String refreshToken = body.get("refreshToken");
+
+			if (refreshToken == null || refreshToken.isEmpty()) {
+				return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+						.body(new ApiResponse<>(false, "Refresh token missing", null));
+			}
+
+			LoginResponse response = authService.refreshToken(refreshToken);
+
+			return ResponseEntity.ok(new ApiResponse<>(true, "Token refreshed", response));
+
+		} catch (Exception e) {
+
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+					.body(new ApiResponse<>(false, "Invalid refresh token", null));
+		}
 	}
 
 	@GetMapping("/test")

@@ -13,6 +13,8 @@ public interface AuthService {
 
     LoginResponse login(LoginRequest request);
     
+    LoginResponse refreshToken(String refreshToken);
+    
     ProfileResponse getProfile();
     
     ProfileResponse updateProfile(UpdateProfileRequest request);

@@ -75,6 +75,8 @@ public class AdminRestaurantServiceImpl implements AdminRestaurantService {
                 .totalReviews(restaurant.getTotalReviews())
                 .status(restaurant.getStatus())
                 .imageUrl(restaurant.getImageUrl())
+                .createdAt(restaurant.getCreatedAt())
+                .isOpen(restaurant.getIsOpen())
                 .build();
     }
 }

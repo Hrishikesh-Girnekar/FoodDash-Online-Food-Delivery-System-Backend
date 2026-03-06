@@ -57,5 +57,6 @@ public class Order extends BaseEntity {
 
     @Column(name = "otp_generated_time")
     private LocalDateTime otpGeneratedTime;
+    
 
 }

@@ -5,6 +5,7 @@ import com.app.fooddash.dto.response.MenuItemResponse;
 import com.app.fooddash.entity.MenuItem;
 import com.app.fooddash.entity.Restaurant;
 import com.app.fooddash.entity.User;
+import com.app.fooddash.enums.RestaurantStatus;
 import com.app.fooddash.exception.BadRequestException;
 import com.app.fooddash.exception.ResourceNotFoundException;
 import com.app.fooddash.exception.UnauthorizedException;
@@ -30,89 +31,81 @@ public class MenuServiceImpl implements MenuService {
 	@Override
 	public void addMenuItem(CreateMenuItemRequest request) {
 
-	    String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		String email = SecurityContextHolder.getContext().getAuthentication().getName();
 
-	    User owner = userRepository.findByEmail(email)
-	            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User owner = userRepository.findByEmail(email)
+				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-	    Restaurant restaurant = restaurantRepository.findById(request.getRestaurantId())
-	            .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(request.getRestaurantId())
+				.orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
-	    if (!restaurant.getOwner().getId().equals(owner.getId())) {
-	        throw new UnauthorizedException("You can only add menu to your own restaurant");
-	    }
+		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			throw new UnauthorizedException("You can only add menu to your own restaurant");
+		}
 
-	    MenuItem item = new MenuItem();
-	    item.setName(request.getName());
-	    item.setDescription(request.getDescription());
-	    item.setPrice(request.getPrice());
-	    item.setCategory(request.getCategory());
-	    item.setIsVeg(request.getIsVeg());
-	    item.setIsBestseller(request.getIsBestseller() != null ? request.getIsBestseller() : false);
-	    item.setImageUrl(request.getImageUrl());
-	    item.setIsAvailable(request.getIsAvailable() != null ? request.getIsAvailable() : true);
-	    item.setRestaurant(restaurant);
+		MenuItem item = new MenuItem();
+		item.setName(request.getName());
+		item.setDescription(request.getDescription());
+		item.setPrice(request.getPrice());
+		item.setCategory(request.getCategory());
+		item.setIsVeg(request.getIsVeg());
+		item.setIsBestseller(request.getIsBestseller() != null ? request.getIsBestseller() : false);
+		item.setImageUrl(request.getImageUrl());
+		item.setIsAvailable(request.getIsAvailable() != null ? request.getIsAvailable() : true);
+		item.setRestaurant(restaurant);
 
-	    menuItemRepository.save(item);
+		menuItemRepository.save(item);
 	}
 
 	@Override
 	public List<MenuItemResponse> getMenuByRestaurant(Long restaurantId) {
 
-	    Restaurant restaurant = restaurantRepository.findById(restaurantId)
-	            .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-	    System.out.println(restaurant.getIsApproved());
+		Restaurant restaurant = restaurantRepository.findById(restaurantId)
+				.orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+		System.out.println(restaurant.getIsApproved());
 
-	    if (!restaurant.getIsApproved()) {
-	        throw new BadRequestException("Restaurant not approved yet");
-	    }
+//	    if (!restaurant.getIsApproved()) {
+//	        throw new BadRequestException("Restaurant not approved yet");
+//	    }
+		if (restaurant.getStatus() != RestaurantStatus.APPROVED) {
+			throw new BadRequestException("Restaurant is not approved yet");
+		}
 
-	    return menuItemRepository.findByRestaurant(restaurant)
-	            .stream()
-	            .map(item -> new MenuItemResponse(
-	                    item.getId(),
-	                    item.getName(),
-	                    item.getDescription(),
-	                    item.getPrice(),
-	                    item.getCategory(),
-	                    item.getIsVeg(),
-	                    item.getIsBestseller(),
-	                    item.getImageUrl(),
-	                    item.getIsAvailable()
-	            ))
-	            .toList();
+		return menuItemRepository.findByRestaurant(restaurant).stream()
+				.map(item -> new MenuItemResponse(item.getId(), item.getName(), item.getDescription(), item.getPrice(),
+						item.getCategory(), item.getIsVeg(), item.getIsBestseller(), item.getImageUrl(),
+						item.getIsAvailable()))
+				.toList();
 	}
-	
+
 	@Override
 	public void updateMenuItem(Long id, CreateMenuItemRequest request) {
 
-	    MenuItem item = menuItemRepository.findById(id)
-	            .orElseThrow(() -> new RuntimeException("Menu item not found"));
+		MenuItem item = menuItemRepository.findById(id).orElseThrow(() -> new RuntimeException("Menu item not found"));
 
-	    item.setName(request.getName());
-	    item.setDescription(request.getDescription());
-	    item.setPrice(request.getPrice());
-	    item.setCategory(request.getCategory());
-	    item.setIsVeg(request.getIsVeg());
-	    item.setIsAvailable(request.getIsAvailable());
+		item.setName(request.getName());
+		item.setDescription(request.getDescription());
+		item.setPrice(request.getPrice());
+		item.setCategory(request.getCategory());
+		item.setIsVeg(request.getIsVeg());
+		item.setIsAvailable(request.getIsAvailable());
 
-	    menuItemRepository.save(item);
+		menuItemRepository.save(item);
 	}
 
 	@Override
 	public void deleteMenuItem(Long id) {
-	    menuItemRepository.deleteById(id);
+		menuItemRepository.deleteById(id);
 	}
 
 	@Override
 	public void toggleAvailability(Long id) {
 
-	    MenuItem item = menuItemRepository.findById(id)
-	            .orElseThrow(() -> new RuntimeException("Menu item not found"));
+		MenuItem item = menuItemRepository.findById(id).orElseThrow(() -> new RuntimeException("Menu item not found"));
 
-	    item.setIsAvailable(!item.getIsAvailable());
+		item.setIsAvailable(!item.getIsAvailable());
 
-	    menuItemRepository.save(item);
+		menuItemRepository.save(item);
 	}
 
 }

@@ -27,7 +27,7 @@ public class SecurityConfig {
 		}).csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(
-						auth -> auth.requestMatchers("/api/v1/**").permitAll().anyRequest().authenticated())
+						auth -> auth.requestMatchers("/api/v1/**", "/api/payment/**").permitAll().anyRequest().authenticated())
 				.authenticationProvider(authenticationProvider)
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 				.httpBasic(Customizer.withDefaults());

@@ -8,75 +8,87 @@ import com.app.fooddash.service.AdminRestaurantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class AdminRestaurantServiceImpl implements AdminRestaurantService {
 
-    private final RestaurantRepository restaurantRepository;
+	private final RestaurantRepository restaurantRepository;
 
-    @Override
-    public List<RestaurantResponse> getAllRestaurants() {
-        return restaurantRepository.findAll()
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-    }
+	@Override
+	public List<RestaurantResponse> getAllRestaurants() {
 
-    @Override
-    public List<RestaurantResponse> getRestaurantsByStatus(RestaurantStatus status) {
-        return restaurantRepository.findByStatus(status)
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-    }
+		log.info("Admin fetching all restaurants");
 
-    @Override
-    public void updateRestaurantStatus(Long id, RestaurantStatus status) {
+		List<RestaurantResponse> result = restaurantRepository.findAll().stream().map(this::mapToResponse).toList();
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		log.info("Fetched {} restaurants", result.size());
 
-     // Optional safety check
-        if (restaurant.getStatus() != RestaurantStatus.PENDING) {
-            throw new RuntimeException("Only pending restaurants can be approved");
-        }
-        restaurant.setStatus(status);
-        restaurantRepository.save(restaurant);
-    }
+		return result;
+	}
 
-    @Override
-    public void deleteRestaurant(Long id) {
+	@Override
+	public List<RestaurantResponse> getRestaurantsByStatus(RestaurantStatus status) {
 
-        Restaurant restaurant = restaurantRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		log.info("Admin fetching restaurants by status={}", status);
 
-        restaurantRepository.delete(restaurant);
-    }
+		List<RestaurantResponse> result = restaurantRepository.findByStatus(status).stream().map(this::mapToResponse)
+				.toList();
 
-    // ===== DTO Mapper =====
-    private RestaurantResponse mapToResponse(Restaurant restaurant) {
+		log.info("Fetched {} restaurants with status={}", result.size(), status);
 
-        return RestaurantResponse.builder()
-                .id(restaurant.getId())
-                .name(restaurant.getName())
-                .description(restaurant.getDescription())
-                .phone(restaurant.getPhone())
-                .cuisine(restaurant.getCuisine())
-                .address(restaurant.getAddress())
-                .city(restaurant.getCity())
-                .openingTime(restaurant.getOpeningTime())
-                .closingTime(restaurant.getClosingTime())
-                .costForTwo(restaurant.getCostForTwo())
-                .rating(restaurant.getRating())
-                .totalReviews(restaurant.getTotalReviews())
-                .status(restaurant.getStatus())
-                .imageUrl(restaurant.getImageUrl())
-                .createdAt(restaurant.getCreatedAt())
-                .isOpen(restaurant.getIsOpen())
-                .build();
-    }
+		return result;
+	}
+
+	@Override
+	public void updateRestaurantStatus(Long id, RestaurantStatus status) {
+
+		log.info("Admin updating restaurant status. restaurantId={}, newStatus={}", id, status);
+
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id={}", id);
+			return new RuntimeException("Restaurant not found");
+		});
+
+		if (restaurant.getStatus() != RestaurantStatus.PENDING) {
+			log.warn("Invalid status update attempt. restaurantId={}, currentStatus={}, attemptedStatus={}", id,
+					restaurant.getStatus(), status);
+			throw new RuntimeException("Only pending restaurants can be approved");
+		}
+
+		restaurant.setStatus(status);
+		restaurantRepository.save(restaurant);
+
+		log.info("Restaurant status updated successfully. restaurantId={}, newStatus={}", id, status);
+	}
+
+	@Override
+	public void deleteRestaurant(Long id) {
+
+		log.info("Admin deleting restaurant. restaurantId={}", id);
+
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id={}", id);
+			return new RuntimeException("Restaurant not found");
+		});
+
+		restaurantRepository.delete(restaurant);
+
+		log.warn("Restaurant deleted by admin. restaurantId={}, name={}", id, restaurant.getName());
+	}
+
+	private RestaurantResponse mapToResponse(Restaurant restaurant) {
+
+		return RestaurantResponse.builder().id(restaurant.getId()).name(restaurant.getName())
+				.description(restaurant.getDescription()).phone(restaurant.getPhone()).cuisine(restaurant.getCuisine())
+				.address(restaurant.getAddress()).city(restaurant.getCity()).openingTime(restaurant.getOpeningTime())
+				.closingTime(restaurant.getClosingTime()).costForTwo(restaurant.getCostForTwo())
+				.rating(restaurant.getRating()).totalReviews(restaurant.getTotalReviews())
+				.status(restaurant.getStatus()).imageUrl(restaurant.getImageUrl()).createdAt(restaurant.getCreatedAt())
+				.isOpen(restaurant.getIsOpen()).build();
+	}
 }

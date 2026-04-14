@@ -8,26 +8,34 @@ import com.app.fooddash.entity.Order;
 import com.app.fooddash.entity.Restaurant;
 import com.app.fooddash.entity.User;
 import com.app.fooddash.enums.RestaurantStatus;
+import com.app.fooddash.exception.BadRequestException;
 import com.app.fooddash.exception.ResourceNotFoundException;
+import com.app.fooddash.exception.UnauthorizedException;
+import com.app.fooddash.mapper.RestaurantMapper;
+import com.app.fooddash.mapper.OrderMapper; // ✅ FIXED
 import com.app.fooddash.repository.OrderRepository;
 import com.app.fooddash.repository.RestaurantRepository;
 import com.app.fooddash.repository.UserRepository;
+import com.app.fooddash.service.CloudinaryService;
 import com.app.fooddash.service.RestaurantService;
 import com.app.fooddash.util.AuthUtil;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.LocalDateTime;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.List;
 
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RestaurantServiceImpl implements RestaurantService {
@@ -36,86 +44,116 @@ public class RestaurantServiceImpl implements RestaurantService {
 	private final UserRepository userRepository;
 	private final OrderRepository orderRepository;
 	private final AuthUtil authUtil;
+	private final CloudinaryService cloudinaryService;
+	private final RestaurantMapper restaurantMapper;
+	private final OrderMapper orderMapper; // ✅ works now
 
 	@Override
-	public void createRestaurant(CreateRestaurantRequest request) {
+	public void createRestaurant(CreateRestaurantRequest request, MultipartFile image) {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Creating restaurant for user: {}", email);
 
-		User owner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User owner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("User not found with email: {}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Restaurant restaurant = new Restaurant();
+		String imageUrl = null;
 
-		restaurant.setName(request.getName());
-		restaurant.setDescription(request.getDescription());
-		restaurant.setPhone(request.getPhone());
-		restaurant.setCuisine(request.getCuisine());
-		restaurant.setAddress(request.getAddress());
-		restaurant.setCity(request.getCity());
-		restaurant.setOpeningTime(request.getOpeningTime());
-		restaurant.setClosingTime(request.getClosingTime());
-		restaurant.setCostForTwo(request.getCostForTwo());
-		restaurant.setImageUrl(request.getImageUrl());
+		if (image != null && !image.isEmpty()) {
+			String publicId = "fooddash/restaurants/" + UUID.randomUUID();
+			log.info("Uploading restaurant image to Cloudinary. publicId={}", publicId);
 
+			imageUrl = cloudinaryService.uploadFile(image, "fooddash/restaurants", publicId);
+		}
+
+		Restaurant restaurant = restaurantMapper.toEntity(request);
+
+		restaurant.setImageUrl(imageUrl);
 		restaurant.setRating(4.2);
 		restaurant.setTotalReviews(120);
 		restaurant.setIsOpen(true);
 		restaurant.setIsApproved(false);
-
 		restaurant.setOwner(owner);
 
 		restaurantRepository.save(restaurant);
+
+		log.info("Restaurant created successfully for user: {}", email);
 	}
 
 	@Override
 	public void approveRestaurant(Long restaurantId) {
 
-		Restaurant restaurant = restaurantRepository.findById(restaurantId)
-				.orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+		log.info("Approving restaurant with id: {}", restaurantId);
+
+		Restaurant restaurant = restaurantRepository.findById(restaurantId).orElseThrow(() -> {
+			log.error("Restaurant not found with id: {}", restaurantId);
+			return new ResourceNotFoundException("Restaurant not found");
+		});
 
 		restaurant.setIsApproved(true);
-
 		restaurantRepository.save(restaurant);
+
+		log.info("Restaurant approved successfully: {}", restaurantId);
 	}
 
 	@Override
 	public List<RestaurantResponse> getApprovedRestaurants() {
 
-		return restaurantRepository.findByStatus(RestaurantStatus.APPROVED).stream()
-				.map(r -> new RestaurantResponse(r.getId(), r.getName(), r.getDescription(), r.getPhone(),
-						r.getCuisine(), r.getAddress(), r.getCity(), r.getOpeningTime(), r.getClosingTime(),
-						r.getCostForTwo(), r.getImageUrl(), r.getRating(), r.getTotalReviews(), r.getIsOpen(),
-						r.getStatus(), r.getCreatedAt()))
-				.toList();
+		log.info("Fetching approved restaurants");
+
+		List<RestaurantResponse> result = restaurantRepository.findByStatus(RestaurantStatus.APPROVED).stream()
+				.map(restaurantMapper::toResponse).toList();
+
+		log.info("Fetched {} approved restaurants", result.size());
+		return result;
 	}
 
 	@Override
 	public List<RestaurantResponse> getAllRestaurants() {
-		return restaurantRepository.findAll().stream().map(this::mapToResponse).toList();
+
+		log.info("Fetching all restaurants");
+
+		List<RestaurantResponse> result = restaurantRepository.findAll().stream().map(restaurantMapper::toResponse)
+				.toList();
+
+		log.info("Fetched {} restaurants", result.size());
+		return result;
 	}
 
 	@Override
 	public List<RestaurantResponse> getOwnerRestaurants() {
 
 		User owner = authUtil.getCurrentUser();
+		log.info("Fetching restaurants for ownerId={}", owner.getId());
 
-		return restaurantRepository.findByOwner(owner).stream().map(this::mapToResponse).toList();
+		List<RestaurantResponse> result = restaurantRepository.findByOwner(owner).stream()
+				.map(restaurantMapper::toResponse).toList();
+
+		log.info("Fetched {} restaurants for ownerId={}", result.size(), owner.getId());
+		return result;
 	}
 
 	@Override
 	public void deleteRestaurant(Long id) {
 
 		User owner = authUtil.getCurrentUser();
+		log.info("Deleting restaurant id={} by ownerId={}", id, owner.getId());
 
-		Restaurant restaurant = restaurantRepository.findById(id)
-				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id: {}", id);
+			return new RuntimeException("Restaurant not found");
+		});
 
 		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			log.warn("Unauthorized delete attempt by ownerId={} on restaurantId={}", owner.getId(), id);
 			throw new RuntimeException("You are not allowed to delete this restaurant");
 		}
 
 		restaurantRepository.delete(restaurant);
+
+		log.info("Restaurant deleted successfully: {}", id);
 	}
 
 	@Override
@@ -123,137 +161,127 @@ public class RestaurantServiceImpl implements RestaurantService {
 	public void toggleRestaurantStatus(Long id) {
 
 		User owner = authUtil.getCurrentUser();
+		log.info("Toggling restaurant status. restaurantId={}, ownerId={}", id, owner.getId());
 
-		Restaurant restaurant = restaurantRepository.findById(id)
-				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id: {}", id);
+			return new RuntimeException("Restaurant not found");
+		});
 
 		if (!restaurant.getOwner().getId().equals(owner.getId())) {
+			log.warn("Unauthorized status toggle attempt by ownerId={} on restaurantId={}", owner.getId(), id);
 			throw new RuntimeException("You are not allowed to update this restaurant");
 		}
 
-		// ✅ Null-safe toggle
 		Boolean currentStatus = restaurant.getIsOpen();
+		restaurant.setIsOpen(currentStatus == null ? true : !currentStatus);
 
-		if (currentStatus == null) {
-			restaurant.setIsOpen(true); // default fallback
-		} else {
-			restaurant.setIsOpen(!currentStatus);
-		}
+		log.info("Restaurant status toggled. restaurantId={}, newStatus={}", id, restaurant.getIsOpen());
 	}
 
 	@Override
-	public void updateRestaurant(Long id, CreateRestaurantRequest request) {
+	public RestaurantResponse updateRestaurant(Long id, CreateRestaurantRequest request, MultipartFile image) {
 
 		User owner = authUtil.getCurrentUser();
+		log.info("Updating restaurant id={} by ownerId={}", id, owner.getId());
 
-		Restaurant restaurant = restaurantRepository.findById(id)
-				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id: {}", id);
+			return new BadRequestException("Restaurant not found");
+		});
 
 		if (!restaurant.getOwner().getId().equals(owner.getId())) {
-			throw new RuntimeException("You are not allowed to update this restaurant");
+			log.warn("Unauthorized update attempt by ownerId={} on restaurantId={}", owner.getId(), id);
+			throw new UnauthorizedException("You are not allowed to update this restaurant");
 		}
 
-		restaurant.setName(request.getName());
-		restaurant.setDescription(request.getDescription());
-		restaurant.setPhone(request.getPhone());
-		restaurant.setCuisine(request.getCuisine());
-		restaurant.setAddress(request.getAddress());
-		restaurant.setCity(request.getCity());
-		restaurant.setOpeningTime(request.getOpeningTime());
-		restaurant.setClosingTime(request.getClosingTime());
-		restaurant.setCostForTwo(request.getCostForTwo());
-		restaurant.setImageUrl(request.getImageUrl());
+		restaurantMapper.updateRestaurantFromDto(request, restaurant);
 
-		restaurantRepository.save(restaurant);
+		if (image != null && !image.isEmpty()) {
+			String publicId = "fooddash/restaurants/" + restaurant.getId();
+			log.info("Updating restaurant image. restaurantId={}, publicId={}", id, publicId);
+
+			String imageUrl = cloudinaryService.uploadFile(image, "fooddash/restaurants", publicId);
+			restaurant.setImageUrl(imageUrl);
+		}
+
+		Restaurant saved = restaurantRepository.save(restaurant);
+
+		log.info("Restaurant updated successfully: {}", id);
+
+		return restaurantMapper.toUpdatedResponse(saved);
 	}
 
 	@Override
 	public RestaurantResponse getRestaurantById(Long id) {
 
-		Restaurant restaurant = restaurantRepository.findById(id)
-				.orElseThrow(() -> new RuntimeException("Restaurant not found"));
+		log.info("Fetching restaurant by id: {}", id);
 
-		return mapToResponse(restaurant);
+		Restaurant restaurant = restaurantRepository.findById(id).orElseThrow(() -> {
+			log.error("Restaurant not found with id: {}", id);
+			return new RuntimeException("Restaurant not found");
+		});
+
+		return restaurantMapper.toResponse(restaurant);
 	}
 
 	@Override
 	public OwnerDashboardStatsResponse getOwnerDashboardStats() {
 
-		User owner = authUtil.getCurrentUser(); // however you fetch logged in user
+		User owner = authUtil.getCurrentUser();
+		log.info("Fetching dashboard stats for ownerId={}", owner.getId());
 
 		List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
 
 		if (restaurants.isEmpty()) {
-			return new OwnerDashboardStatsResponse(0L, 0L, 0.0, 0.0);
+			log.warn("No restaurants found for ownerId={}", owner.getId());
+			return restaurantMapper.toDashboardResponse(0L, 0L, 0.0, 0.0);
 		}
 
 		List<Long> restaurantIds = restaurants.stream().map(Restaurant::getId).toList();
 
-		// ✅ Total Orders
 		Long totalOrders = orderRepository.countByRestaurantIdIn(restaurantIds);
 
-		// ✅ Today's Orders
 		LocalDate today = LocalDate.now();
+
 		Long todayOrders = orderRepository.countByRestaurantIdInAndCreatedAtBetween(restaurantIds, today.atStartOfDay(),
 				today.atTime(LocalTime.MAX));
 
-		// ✅ Total Revenue
 		Double totalRevenue = orderRepository.sumRevenueByRestaurantIds(restaurantIds);
 		if (totalRevenue == null)
 			totalRevenue = 0.0;
 
-		// ✅ Average Rating (from Restaurant table)
 		Double avgRating = restaurants.stream().map(Restaurant::getRating).filter(Objects::nonNull)
 				.mapToDouble(Double::doubleValue).average().orElse(0.0);
 
-		return new OwnerDashboardStatsResponse(todayOrders, totalOrders, totalRevenue,
-				Math.round(avgRating * 10.0) / 10.0);
+		avgRating = Math.round(avgRating * 10.0) / 10.0;
+
+		log.info("Dashboard stats calculated for ownerId={}", owner.getId());
+
+		return restaurantMapper.toDashboardResponse(todayOrders, totalOrders, totalRevenue, avgRating);
 	}
 
+	@Override
 	public List<RecentOrderResponse> getRecentOrders(String email) {
 
-	    // 1️⃣ Get owner user
-	    User owner = userRepository.findByEmail(email)
-	            .orElseThrow(() -> new RuntimeException("Owner not found"));
+		log.info("Fetching recent orders for owner email={}", email);
 
-	    // 2️⃣ Get all restaurants of this owner
-	    List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
+		User owner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Owner not found with email: {}", email);
+			return new RuntimeException("Owner not found");
+		});
 
-	    if (restaurants.isEmpty()) {
-	        throw new RuntimeException("No restaurants found for this owner");
-	    }
+		List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
 
-	    // 3️⃣ Fetch latest 3 orders across ALL restaurants of this owner
-	    List<Order> orders = orderRepository
-	            .findTop3ByRestaurantInOrderByCreatedAtDesc(restaurants);
+		if (restaurants.isEmpty()) {
+			log.warn("No restaurants found for owner email={}", email);
+			throw new RuntimeException("No restaurants found for this owner");
+		}
 
-	    // 4️⃣ Convert to DTO
-	    return orders.stream()
-	            .map(order -> new RecentOrderResponse(
-	                    order.getId(),
-	                    order.getUser().getFullName(),
-	                    buildItemsSummary(order),
-	                    order.getStatus().name(),
-	                    order.getTotalAmount()
-	            ))
-	            .collect(Collectors.toList());
+		List<Order> orders = orderRepository.findTop3ByRestaurantInOrderByCreatedAtDesc(restaurants);
+
+		log.info("Fetched {} recent orders for owner email={}", orders.size(), email);
+
+		return orders.stream().map(orderMapper::toRecentOrderResponse).collect(Collectors.toList());
 	}
-	
-	private String buildItemsSummary(Order order) {
-	    return order.getItems().stream()
-	            .map(item -> item.getMenuItem().getName() + " x" + item.getQuantity())
-	            .collect(Collectors.joining(", "));
-	}
-	// ================= MAPPER METHOD =================
-	private RestaurantResponse mapToResponse(Restaurant restaurant) {
-
-		return RestaurantResponse.builder().id(restaurant.getId()).name(restaurant.getName())
-				.description(restaurant.getDescription()).phone(restaurant.getPhone()).cuisine(restaurant.getCuisine())
-				.address(restaurant.getAddress()).city(restaurant.getCity()).openingTime(restaurant.getOpeningTime())
-				.closingTime(restaurant.getClosingTime()).costForTwo(restaurant.getCostForTwo())
-				.rating(restaurant.getRating()).status(restaurant.getStatus()).imageUrl(restaurant.getImageUrl())
-				.isOpen(restaurant.getIsOpen()).createdAt(restaurant.getCreatedAt()).build();
-	}
-
-	
 }

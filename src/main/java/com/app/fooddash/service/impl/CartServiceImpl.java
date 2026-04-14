@@ -11,7 +11,10 @@ import com.app.fooddash.service.CartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
@@ -24,37 +27,44 @@ public class CartServiceImpl implements CartService {
 	@Override
 	public void addToCart(AddToCartRequest request) {
 
-		// 1️ Get logged-in user
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Adding item to cart. user={}, menuItemId={}, quantity={}",
+				email, request.getMenuItemId(), request.getQuantity());
 
 		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> {
+					log.error("User not found with email={}", email);
+					return new ResourceNotFoundException("User not found");
+				});
 
-		// 2️ Fetch menu item
 		MenuItem menuItem = menuItemRepository.findById(request.getMenuItemId())
-				.orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
+				.orElseThrow(() -> {
+					log.error("Menu item not found with id={}", request.getMenuItemId());
+					return new ResourceNotFoundException("Menu item not found");
+				});
 
 		Restaurant restaurant = menuItem.getRestaurant();
 
-		// 3️ Get or create cart
 		Cart cart = cartRepository.findByUser(user).orElseGet(() -> {
+			log.info("Cart not found. Creating new cart for user={}", email);
 			Cart newCart = new Cart();
 			newCart.setUser(user);
 			return cartRepository.save(newCart);
 		});
 
-		// ✅ If cart has no restaurant, assign it
 		if (cart.getRestaurant() == null) {
+			log.info("Assigning restaurant to cart. user={}, restaurantId={}", email, restaurant.getId());
 			cart.setRestaurant(restaurant);
 		}
 
-		// ✅ If cart has different restaurant, reject
 		else if (!cart.getRestaurant().getId().equals(restaurant.getId())) {
+			log.warn("User attempted to add items from different restaurant. user={}, existingRestaurantId={}, newRestaurantId={}",
+					email, cart.getRestaurant().getId(), restaurant.getId());
 			throw new BadRequestException("You cannot add items from different restaurants");
 		}
 
-		// 5️ Check if item already exists
 		CartItem cartItem = cartItemRepository.findByCartAndMenuItem(cart, menuItem).orElseGet(() -> {
+			log.info("Item not in cart. Creating new cart item. user={}, menuItemId={}", email, menuItem.getId());
 			CartItem newItem = new CartItem();
 			newItem.setCart(cart);
 			newItem.setMenuItem(menuItem);
@@ -62,21 +72,31 @@ public class CartServiceImpl implements CartService {
 			return newItem;
 		});
 
-		// 6️ Update quantity
 		cartItem.setQuantity(cartItem.getQuantity() + request.getQuantity());
 
 		cartItemRepository.save(cartItem);
+
+		log.info("Item added to cart successfully. user={}, menuItemId={}, newQuantity={}",
+				email, menuItem.getId(), cartItem.getQuantity());
 	}
 
 	@Override
 	public CartResponse viewCart() {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Fetching cart for user={}", email);
 
 		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+				.orElseThrow(() -> {
+					log.error("User not found with email={}", email);
+					return new ResourceNotFoundException("User not found");
+				});
 
-		Cart cart = cartRepository.findByUser(user).orElseThrow(() -> new BadRequestException("Cart is empty"));
+		Cart cart = cartRepository.findByUser(user)
+				.orElseThrow(() -> {
+					log.warn("Cart is empty for user={}", email);
+					return new BadRequestException("Cart is empty");
+				});
 
 		var items = cart.getItems();
 
@@ -86,14 +106,22 @@ public class CartServiceImpl implements CartService {
 			var quantity = item.getQuantity();
 			var total = price.multiply(java.math.BigDecimal.valueOf(quantity));
 
-			return new CartItemResponse(item.getMenuItem().getId(), item.getMenuItem().getName(), price, quantity,
-					total);
+			return new CartItemResponse(
+					item.getMenuItem().getId(),
+					item.getMenuItem().getName(),
+					price,
+					quantity,
+					total
+			);
 		}).toList();
 
-		var cartTotal = itemResponses.stream().map(CartItemResponse::getTotal).reduce(java.math.BigDecimal.ZERO,
-				java.math.BigDecimal::add);
+		var cartTotal = itemResponses.stream()
+				.map(CartItemResponse::getTotal)
+				.reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+		log.info("Cart fetched successfully. user={}, itemsCount={}, totalAmount={}",
+				email, itemResponses.size(), cartTotal);
 
 		return new CartResponse(cart.getRestaurant().getName(), itemResponses, cartTotal);
 	}
-
 }

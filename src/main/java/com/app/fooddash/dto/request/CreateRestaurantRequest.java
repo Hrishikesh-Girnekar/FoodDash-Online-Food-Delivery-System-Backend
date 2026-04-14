@@ -37,6 +37,4 @@ public class CreateRestaurantRequest {
     @NotNull(message = "Cost for two is required")
     private Integer costForTwo;
 
-    // optional
-    private String imageUrl;
 }

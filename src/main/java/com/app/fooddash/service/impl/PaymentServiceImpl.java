@@ -45,52 +45,6 @@ public class PaymentServiceImpl implements PaymentService {
 	@Value("${razorpay.key.secret}")
 	private String keySecret;
 
-	// ─── CREATE ORDER ──────────────────────────────────────────────
-//    @Override
-//    @Transactional
-//    public CreateOrderResponse createOrder(CreateOrderRequest request) {
-//        try {
-//            // ① Build Razorpay options
-//            JSONObject options = new JSONObject();
-//            options.put("amount",   request.getAmount() * 100); // rupees → paise
-//            options.put("currency", request.getCurrency());
-//            options.put("receipt",  request.getReceipt() != null
-//                                          ? request.getReceipt()
-//                                          : "receipt_" + System.currentTimeMillis());
-//            options.put("payment_capture", 1); // auto-capture
-//
-//            // ② Call Razorpay API
-//            Order razorOrder = razorpayClient.orders.create(options);
-////            log.info("Razorpay order created: {}", razorOrder.get("id"));
-//            
-//            User user = userRepository.findByEmail(email)
-//                    .orElseThrow(() -> new RuntimeException("User not found"));
-//           
-//
-//            // ③ Persist order in our DB with status CREATED
-//            PaymentOrder entity = PaymentOrder.builder()
-//                .razorpayOrderId((String) razorOrder.get("id"))
-//                .amount(request.getAmount() * 100)
-//                .currency(request.getCurrency())
-//                .receipt((String) razorOrder.get("receipt"))
-//                .status(PaymentStatus.CREATED)
-//                .build();
-//            orderRepo.save(entity);
-//
-//            // ④ Return response to frontend
-//            return CreateOrderResponse.builder()
-//                .orderId((String) razorOrder.get("id"))
-//                .amount((Integer) razorOrder.get("amount"))
-//                .currency((String) razorOrder.get("currency"))
-//                .keyId(keyId)
-//                .build();
-//
-//        } catch (RazorpayException e) {
-//            log.error("Failed to create Razorpay order: {}", e.getMessage());
-//            throw new PaymentException("Order creation failed: " + e.getMessage());
-//        }
-//    }
-
 	@Override
 	@Transactional
 	public CreateOrderResponse createOrder(CreateOrderRequest request, String email) {
@@ -106,7 +60,7 @@ public class PaymentServiceImpl implements PaymentService {
 
 			// ② Call Razorpay API
 			Order razorOrder = razorpayClient.orders.create(options);
-//			log.info("Razorpay order created: {}", razorOrder.get("id"));
+//			log.info("Razorpay order created: {}", String.valueOf(razorOrder.get("id")));
 
 			// ③ Fetch logged-in user
 			User user = userRepository.findByEmail(email).orElseThrow(() -> new PaymentException("User not found"));
@@ -168,10 +122,6 @@ public class PaymentServiceImpl implements PaymentService {
 
 			log.info("Payment verified and recorded. OrderId={}, PaymentId={}", request.getRazorpayOrderId(),
 					request.getRazorpayPaymentId());
-
-			// ⑥ Trigger downstream logic here:
-			// emailService.sendConfirmation(order.getUserId())
-			// fulfillmentService.dispatch(order)
 
 			return true;
 

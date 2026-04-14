@@ -11,6 +11,7 @@ import com.app.fooddash.enums.RoleType;
 import com.app.fooddash.exception.BadRequestException;
 import com.app.fooddash.exception.ResourceNotFoundException;
 import com.app.fooddash.exception.UnauthorizedException;
+import com.app.fooddash.mapper.OrderMapper;
 import com.app.fooddash.repository.*;
 import com.app.fooddash.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
@@ -32,18 +35,23 @@ public class OrderServiceImpl implements OrderService {
 	private final UserRepository userRepository;
 	private final RestaurantRepository restaurantRepository;
 	private final MenuItemRepository menuItemRepository;
+	private final OrderMapper orderMapper;
 
 	@Override
 	public Order placeOrder(OrderRequest request) {
 
-		// 🔐 Get logged-in user
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Placing order for user={}", email);
 
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User user = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("User not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Restaurant restaurant = restaurantRepository.findById(request.getRestaurantId())
-				.orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+		Restaurant restaurant = restaurantRepository.findById(request.getRestaurantId()).orElseThrow(() -> {
+			log.error("Restaurant not found with id={}", request.getRestaurantId());
+			return new ResourceNotFoundException("Restaurant not found");
+		});
 
 		Order order = new Order();
 		order.setUser(user);
@@ -54,82 +62,76 @@ public class OrderServiceImpl implements OrderService {
 
 		for (OrderItemRequest itemReq : request.getItems()) {
 
-			MenuItem menuItem = menuItemRepository.findById(itemReq.getMenuItemId())
-					.orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
+			MenuItem menuItem = menuItemRepository.findById(itemReq.getMenuItemId()).orElseThrow(() -> {
+				log.error("Menu item not found with id={}", itemReq.getMenuItemId());
+				return new ResourceNotFoundException("Menu item not found");
+			});
 
 			BigDecimal itemTotal = menuItem.getPrice().multiply(BigDecimal.valueOf(itemReq.getQuantity()));
-
 			total = total.add(itemTotal);
 
 			OrderItem orderItem = new OrderItem();
 			orderItem.setOrder(order);
 			orderItem.setMenuItem(menuItem);
 			orderItem.setQuantity(itemReq.getQuantity());
-			orderItem.setPrice(menuItem.getPrice()); // snapshot price
+			orderItem.setPrice(menuItem.getPrice());
 
 			order.getItems().add(orderItem);
 		}
 
 		order.setTotalAmount(total);
-		// 🔥 Delivery snapshot (for now use user data if available)
 		order.setDeliveryPhone("9876543210");
 		order.setDeliveryAddress("Pune, Hinjewadi Phase 1");
 
-		return orderRepository.save(order);
+		Order savedOrder = orderRepository.save(order);
+
+		log.info("Order placed successfully. orderId={}, user={}", savedOrder.getId(), email);
+
+		return savedOrder;
 	}
 
 	@Override
 	public List<OrderResponse> getMyOrders() {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Fetching orders for user={}", email);
 
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User user = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("User not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		return orderRepository.findByUser(user).stream().map(order -> {
+		List<OrderResponse> result = orderRepository.findByUser(user).stream().map(orderMapper::toOrderResponse)
+				.toList();
 
-			var items = order.getItems().stream().map(item -> {
-
-				var total = item.getPrice().multiply(java.math.BigDecimal.valueOf(item.getQuantity()));
-
-				return new OrderItemResponse(item.getMenuItem().getName(), item.getPrice(), item.getQuantity(), total);
-			}).toList();
-
-			return new OrderResponse(order.getId(), order.getRestaurant().getName(), order.getStatus(),
-					order.getTotalAmount(), order.getCreatedAt(), items);
-		}).toList();
+		log.info("Fetched {} orders for user={}", result.size(), email);
+		return result;
 	}
 
 	@Override
 	public List<OrderResponse> getOrdersForOwner() {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Fetching orders for owner={}", email);
 
-		User owner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User owner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Owner not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
 		List<Restaurant> restaurants = restaurantRepository.findByOwner(owner);
 
 		if (restaurants.isEmpty()) {
+			log.warn("No restaurants found for owner={}", email);
 			throw new BadRequestException("No restaurants found for this owner");
 		}
 
 		List<Order> orders = restaurants.stream().flatMap(r -> orderRepository.findByRestaurant(r).stream())
-				.sorted((o1, o2) -> o2.getCreatedAt().compareTo(o1.getCreatedAt())) // latest first
-				.toList();
+				.sorted((o1, o2) -> o2.getCreatedAt().compareTo(o1.getCreatedAt())).toList();
 
-		return orders.stream().map(order -> {
+		log.info("Fetched {} orders for owner={}", orders.size(), email);
 
-			List<OrderItemResponse> items = order.getItems().stream()
-					.map(item -> new OrderItemResponse(item.getMenuItem().getName(), item.getPrice(),
-							item.getQuantity(),
-							item.getPrice().multiply(java.math.BigDecimal.valueOf(item.getQuantity()))))
-					.toList();
-
-			return new OrderResponse(order.getId(), order.getRestaurant().getName(), order.getStatus(),
-					order.getTotalAmount(), order.getCreatedAt(), items);
-
-		}).toList();
+		return orders.stream().map(orderMapper::toOrderResponse).toList();
 	}
 
 	@Override
@@ -137,123 +139,75 @@ public class OrderServiceImpl implements OrderService {
 	public void updateOrderStatus(Long orderId, OrderStatus newStatus) {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Updating order status. orderId={}, newStatus={}, owner={}", orderId, newStatus, email);
 
-		User owner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User owner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Owner not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Order order = orderRepository.findById(orderId)
-				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
 		if (!order.getRestaurant().getOwner().getId().equals(owner.getId())) {
+			log.warn("Unauthorized order status update attempt. orderId={}, owner={}", orderId, email);
 			throw new UnauthorizedException("You cannot update this order");
 		}
 
 		OrderStatus currentStatus = order.getStatus();
 
 		if (currentStatus == OrderStatus.DELIVERED || currentStatus == OrderStatus.CANCELLED) {
+			log.warn("Order already completed. orderId={}, status={}", orderId, currentStatus);
 			throw new BadRequestException("Order already completed");
 		}
 
-		// 🔥 STRICT TRANSITION RULES
 		boolean validTransition = (currentStatus == OrderStatus.PLACED && newStatus == OrderStatus.ACCEPTED)
 				|| (currentStatus == OrderStatus.ACCEPTED && newStatus == OrderStatus.PREPARING)
 				|| (currentStatus == OrderStatus.PREPARING && newStatus == OrderStatus.OUT_FOR_DELIVERY);
-//		     || (currentStatus == OrderStatus.OUT_FOR_DELIVERY && newStatus == OrderStatus.DELIVERED)
 
 		if (!validTransition) {
+			log.warn("Invalid order status transition. orderId={}, from={}, to={}", orderId, currentStatus, newStatus);
 			throw new BadRequestException("Invalid order status transition from " + currentStatus + " to " + newStatus);
 		}
 
 		order.setStatus(newStatus);
-	}
 
-//	@Override
-//	@Transactional
-//	public void updateOrderStatus(Long orderId, OrderStatus newStatus) {
-//
-//		String email = SecurityContextHolder.getContext().getAuthentication().getName();
-//
-//		User owner = userRepository.findByEmail(email)
-//				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
-//
-//		Order order = orderRepository.findById(orderId)
-//				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
-//
-//		if (!order.getRestaurant().getOwner().getId().equals(owner.getId())) {
-//			throw new UnauthorizedException("You cannot update this order");
-//		}
-//
-//		OrderStatus currentStatus = order.getStatus();
-//
-//		if (currentStatus == OrderStatus.DELIVERED || currentStatus == OrderStatus.CANCELLED) {
-//			throw new BadRequestException("Order already completed");
-//		}
-//
-//		// 🔥 STRICT TRANSITION RULES
-//		boolean validTransition = (currentStatus == OrderStatus.PLACED && newStatus == OrderStatus.ACCEPTED)
-//				|| (currentStatus == OrderStatus.ACCEPTED && newStatus == OrderStatus.PREPARING)
-//				|| (currentStatus == OrderStatus.PREPARING && newStatus == OrderStatus.OUT_FOR_DELIVERY);
-//
-//		if (!validTransition) {
-//			throw new BadRequestException("Invalid order status transition from " + currentStatus + " to " + newStatus);
-//		}
-//
-//		// ✅ If moving to OUT_FOR_DELIVERY → Auto assign partner + generate OTP
-//		if (newStatus == OrderStatus.OUT_FOR_DELIVERY) {
-//
-//			if (order.getDeliveryPartner() == null) {
-//
-//				List<User> partners = userRepository.findByRoles_Name(RoleType.DELIVERY_PARTNER);
-//
-//				if (partners.isEmpty()) {
-//					throw new BadRequestException("No delivery partners available");
-//				}
-//
-//				User partner = partners.get(ThreadLocalRandom.current().nextInt(partners.size()));
-//
-//				order.setDeliveryPartner(partner);
-//
-//				String otp = String.valueOf(ThreadLocalRandom.current().nextInt(1000, 10000));
-//
-//				order.setDeliveryOtp(otp);
-//				order.setOtpVerified(false);
-//				order.setOtpGeneratedTime(LocalDateTime.now());
-//
-//				System.out.println("Generated OTP for order " + orderId + " : " + otp);
-//			}
-//		}
-//
-//		order.setStatus(newStatus);
-//	}
+		log.info("Order status updated successfully. orderId={}, newStatus={}", orderId, newStatus);
+	}
 
 	@Override
 	public List<OrderResponse> getAllOrdersForAdmin() {
 
-		return orderRepository.findAllByOrderByCreatedAtDesc().stream().map(order -> {
+		log.info("Fetching all orders for admin");
 
-			var items = order.getItems().stream()
-					.map(item -> new OrderItemResponse(item.getMenuItem().getName(), item.getPrice(),
-							item.getQuantity(),
-							item.getPrice().multiply(java.math.BigDecimal.valueOf(item.getQuantity()))))
-					.toList();
+		List<OrderResponse> result = orderRepository.findAllByOrderByCreatedAtDesc().stream()
+				.map(orderMapper::toOrderResponse).toList();
 
-			return new OrderResponse(order.getId(), order.getRestaurant().getName(), order.getStatus(),
-					order.getTotalAmount(), order.getCreatedAt(), items);
-		}).toList();
+		log.info("Fetched {} orders for admin", result.size());
+		return result;
 	}
 
 	@Override
 	@Transactional
 	public void adminCancelOrder(Long orderId) {
 
-		Order order = orderRepository.findById(orderId)
-				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		log.info("Admin cancelling order. orderId={}", orderId);
+
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
 		if (order.getStatus() == OrderStatus.DELIVERED) {
+			log.warn("Attempt to cancel delivered order. orderId={}", orderId);
 			throw new BadRequestException("Delivered orders cannot be cancelled");
 		}
 
 		order.setStatus(OrderStatus.CANCELLED);
+
+		log.info("Order cancelled by admin. orderId={}", orderId);
 	}
 
 	@Override
@@ -261,140 +215,109 @@ public class OrderServiceImpl implements OrderService {
 	public void cancelMyOrder(Long orderId) {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("User cancelling order. orderId={}, user={}", orderId, email);
 
-		User user = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User user = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("User not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Order order = orderRepository.findById(orderId)
-				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
 		if (!order.getUser().getId().equals(user.getId())) {
+			log.warn("Unauthorized cancel attempt. orderId={}, user={}", orderId, email);
 			throw new UnauthorizedException("You cannot cancel this order");
 		}
 
 		if (order.getStatus() != OrderStatus.PLACED) {
+			log.warn("Invalid cancel attempt. orderId={}, status={}", orderId, order.getStatus());
 			throw new BadRequestException("Order can only be cancelled while in PLACED status");
 		}
 
 		order.setStatus(OrderStatus.CANCELLED);
+
+		log.info("Order cancelled by user. orderId={}", orderId);
 	}
 
-//	@Override
-//	@Transactional
-//	public void assignDeliveryPartner(Long orderId, Long deliveryPartnerId) {
-//
-//		Order order = orderRepository.findById(orderId)
-//				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
-//
-//		if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
-//			throw new BadRequestException("Order must be OUT_FOR_DELIVERY before assigning delivery partner");
-//		}
-//
-//		User deliveryPartner = userRepository.findById(deliveryPartnerId)
-//				.orElseThrow(() -> new ResourceNotFoundException("Delivery partner not found"));
-//
-//		boolean isDeliveryRole = deliveryPartner.getRoles().stream()
-//				.anyMatch(role -> role.getName() == RoleType.DELIVERY_PARTNER);
-//
-//		if (!isDeliveryRole) {
-//			throw new BadRequestException("User is not a delivery partner");
-//		}
-//
-//		order.setDeliveryPartner(deliveryPartner);
-//	}
 	@Override
 	@Transactional
 	public void assignDeliveryPartner(Long orderId, Long deliveryPartnerId) {
 
-	    Order order = orderRepository.findById(orderId)
-	            .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		log.info("Assigning delivery partner. orderId={}, deliveryPartnerId={}", orderId, deliveryPartnerId);
 
-	    if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
-	        throw new BadRequestException("Order must be OUT_FOR_DELIVERY before assigning delivery partner");
-	    }
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
-	    User deliveryPartner = userRepository.findById(deliveryPartnerId)
-	            .orElseThrow(() -> new ResourceNotFoundException("Delivery partner not found"));
+		if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+			log.warn("Invalid state for assignment. orderId={}, status={}", orderId, order.getStatus());
+			throw new BadRequestException("Order must be OUT_FOR_DELIVERY before assigning delivery partner");
+		}
 
-	    order.setDeliveryPartner(deliveryPartner);
-	    order.setStatus(OrderStatus.ASSIGNED);  // 🔥 ADD THIS
-	    System.out.println(order.getStatus());
+		User deliveryPartner = userRepository.findById(deliveryPartnerId).orElseThrow(() -> {
+			log.error("Delivery partner not found with id={}", deliveryPartnerId);
+			return new ResourceNotFoundException("Delivery partner not found");
+		});
+
+		order.setDeliveryPartner(deliveryPartner);
+		order.setStatus(OrderStatus.ASSIGNED);
+
+		log.info("Delivery partner assigned successfully. orderId={}, deliveryPartnerId={}", orderId,
+				deliveryPartnerId);
 	}
-//	@Transactional
-//	public void assignDeliveryPartner(Long orderId) {
-//
-//		Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
-//
-//		List<User> partners = userRepository.findByRoles_Name(RoleType.DELIVERY_PARTNER);
-//
-//		if (partners.isEmpty()) {
-//			throw new RuntimeException("No delivery partners available");
-//		}
-//
-//		// ✅ Random delivery partner selection (thread-safe & efficient)
-//		User partner = partners.get(ThreadLocalRandom.current().nextInt(partners.size()));
-//
-//		order.setDeliveryPartner(partner);
-//		order.setStatus(OrderStatus.OUT_FOR_DELIVERY);
-//
-//		// Generate 4-digit OTP
-//		String otp = String.valueOf(ThreadLocalRandom.current().nextInt(1000, 10000));
-//
-//		order.setDeliveryOtp(otp);
-//		order.setOtpVerified(false);
-//		order.setOtpGeneratedTime(LocalDateTime.now());
-//
-//		orderRepository.save(order);
-//
-//		System.out.println("Generated OTP for Order " + orderId + ": " + otp);
-//	}
 
 	@Override
 	@Transactional
 	public void markAsDelivered(Long orderId) {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Marking order as delivered. orderId={}, deliveryPartner={}", orderId, email);
 
-		User deliveryPartner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User deliveryPartner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Delivery partner not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Order order = orderRepository.findById(orderId)
-				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
 		if (order.getDeliveryPartner() == null || !order.getDeliveryPartner().getId().equals(deliveryPartner.getId())) {
+			log.warn("Unauthorized delivery attempt. orderId={}, user={}", orderId, email);
 			throw new UnauthorizedException("You are not assigned to this order");
 		}
 
 		if (order.getStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+			log.warn("Invalid delivery state. orderId={}, status={}", orderId, order.getStatus());
 			throw new BadRequestException("Order is not ready for delivery");
 		}
 
 		order.setStatus(OrderStatus.DELIVERED);
+
+		log.info("Order marked as delivered. orderId={}", orderId);
 	}
 
 	@Override
 	public List<DeliveryOrderResponse> getAssignedOrdersForDeliveryPartner() {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Fetching assigned orders for deliveryPartner={}", email);
 
-		User deliveryPartner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User deliveryPartner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Delivery partner not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
 		List<Order> orders = orderRepository.findByDeliveryPartner(deliveryPartner);
 
-		return orders.stream().map(order -> {
+		log.info("Fetched {} assigned orders for deliveryPartner={}", orders.size(), email);
 
-			var items = order.getItems().stream()
-					.map(item -> new OrderItemResponse(item.getMenuItem().getName(), item.getPrice(),
-							item.getQuantity(),
-							item.getPrice().multiply(java.math.BigDecimal.valueOf(item.getQuantity()))))
-					.toList();
-
-			return new DeliveryOrderResponse(order.getId(), order.getRestaurant().getName(), order.getStatus(),
-					order.getTotalAmount(), order.getCreatedAt(), items, order.getUser().getFullName(),
-					order.getDeliveryPhone(), order.getDeliveryAddress());
-
-		}).toList();
+		return orderMapper.toDeliveryOrderResponseList(orders);
 	}
 
 	@Override
@@ -402,14 +325,20 @@ public class OrderServiceImpl implements OrderService {
 	public void updateDeliveryStatus(Long orderId, OrderStatus newStatus) {
 
 		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("Updating delivery status. orderId={}, newStatus={}, deliveryPartner={}", orderId, newStatus, email);
 
-		User deliveryPartner = userRepository.findByEmail(email)
-				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+		User deliveryPartner = userRepository.findByEmail(email).orElseThrow(() -> {
+			log.error("Delivery partner not found with email={}", email);
+			return new ResourceNotFoundException("User not found");
+		});
 
-		Order order = orderRepository.findById(orderId)
-				.orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+		Order order = orderRepository.findById(orderId).orElseThrow(() -> {
+			log.error("Order not found with id={}", orderId);
+			return new ResourceNotFoundException("Order not found");
+		});
 
 		if (order.getDeliveryPartner() == null || !order.getDeliveryPartner().getId().equals(deliveryPartner.getId())) {
+			log.warn("Unauthorized delivery status update. orderId={}, user={}", orderId, email);
 			throw new UnauthorizedException("You are not assigned to this order");
 		}
 
@@ -420,37 +349,14 @@ public class OrderServiceImpl implements OrderService {
 				|| (currentStatus == OrderStatus.ON_THE_WAY && newStatus == OrderStatus.DELIVERED);
 
 		if (!validTransition) {
+			log.warn("Invalid delivery status transition. orderId={}, from={}, to={}", orderId, currentStatus,
+					newStatus);
 			throw new BadRequestException("Invalid delivery status transition");
 		}
 
 		order.setStatus(newStatus);
+
+		log.info("Delivery status updated successfully. orderId={}, newStatus={}", orderId, newStatus);
 	}
 
-//	@Override
-//	@Transactional
-//	public void verifyOtp(Long orderId, String enteredOtp) {
-//
-//		Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
-//
-//		if (order.getDeliveryOtp() == null) {
-//			throw new RuntimeException("OTP not generated");
-//		}
-//
-//		// OTP expiry check (10 minutes)
-//		if (order.getOtpGeneratedTime().plusMinutes(10).isBefore(LocalDateTime.now())) {
-//
-//			throw new RuntimeException("OTP expired");
-//		}
-//
-//		if (!order.getDeliveryOtp().equals(enteredOtp)) {
-//			throw new RuntimeException("Invalid OTP");
-//		}
-//
-//		order.setOtpVerified(true);
-//		order.setStatus(OrderStatus.DELIVERED);
-//
-//		orderRepository.save(order);
-//	}
-
-	
 }

@@ -27,7 +27,7 @@ public class CreateMenuItemRequest {
 
     private Boolean isBestseller;
 
-    private String imageUrl;
+//    private String imageUrl;
 
     private Boolean isAvailable;
 

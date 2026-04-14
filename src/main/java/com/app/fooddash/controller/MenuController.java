@@ -10,9 +10,11 @@ import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/menu")
@@ -21,17 +23,17 @@ public class MenuController {
 
 	private final MenuService menuService;
 
-	// 1️⃣ ADD MENU ITEM
+	// ADD MENU ITEM
 	@PostMapping
 	@PreAuthorize("hasAuthority('RESTAURANT_OWNER')")
-	public ResponseEntity<ApiResponse<Void>> addMenuItem(@Valid @RequestBody CreateMenuItemRequest request) {
+	public ResponseEntity<ApiResponse<?>> addMenuItem(@Valid @ModelAttribute CreateMenuItemRequest request, @RequestParam(value = "image", required = false) MultipartFile image) {
 
-		menuService.addMenuItem(request);
+		menuService.addMenuItem(request, image);
 
 		return ResponseEntity.ok(new ApiResponse<>(true, "Menu item added successfully", null));
 	}
 
-	// 2️⃣ GET MENU BY RESTAURANT
+	// GET MENU BY RESTAURANT
 	@GetMapping("/restaurant/{restaurantId}")
 //    @PreAuthorize("hasAnyAuthority('CUSTOMER','ADMIN','RESTAURANT_OWNER')")
 	public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenu(@PathVariable Long restaurantId) {
@@ -41,18 +43,20 @@ public class MenuController {
 		return ResponseEntity.ok(new ApiResponse<>(true, "Menu fetched successfully", menu));
 	}
 
-	// 3️⃣ UPDATE MENU ITEM
-	@PutMapping("/{menuItemId}")
+	// UPDATE MENU ITEM
+	@PutMapping(value = "/{menuItemId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	@PreAuthorize("hasAuthority('RESTAURANT_OWNER')")
-	public ResponseEntity<ApiResponse<Void>> updateMenuItem(@PathVariable Long menuItemId,
-			@Valid @RequestBody CreateMenuItemRequest request) {
+	public ResponseEntity<ApiResponse<Void>> updateMenuItem(
+	        @PathVariable Long menuItemId,
+	        @ModelAttribute CreateMenuItemRequest request,
+	        @RequestPart(value = "image", required = false) MultipartFile image) {
 
-		menuService.updateMenuItem(menuItemId, request);
+	    menuService.updateMenuItem(menuItemId, request, image);
 
-		return ResponseEntity.ok(new ApiResponse<>(true, "Menu item updated successfully", null));
+	    return ResponseEntity.ok(new ApiResponse<>(true, "Menu item updated successfully", null));
 	}
 
-	// 4️⃣ DELETE MENU ITEM
+	// DELETE MENU ITEM
 	@DeleteMapping("/{menuItemId}")
 	@PreAuthorize("hasAuthority('RESTAURANT_OWNER')")
 	public ResponseEntity<ApiResponse<Void>> deleteMenuItem(@PathVariable Long menuItemId) {
@@ -62,7 +66,7 @@ public class MenuController {
 		return ResponseEntity.ok(new ApiResponse<>(true, "Menu item deleted successfully", null));
 	}
 
-	// 5️⃣ TOGGLE AVAILABILITY
+	// TOGGLE AVAILABILITY
 	@PatchMapping("/{menuItemId}/toggle")
 	@PreAuthorize("hasAuthority('RESTAURANT_OWNER')")
 	public ResponseEntity<ApiResponse<Void>> toggleAvailability(@PathVariable Long menuItemId) {

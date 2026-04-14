@@ -1,9 +1,6 @@
 package com.app.fooddash.service.impl;
 
-import com.app.fooddash.dto.request.ChangePasswordRequest;
-import com.app.fooddash.dto.request.LoginRequest;
-import com.app.fooddash.dto.request.RegisterRequest;
-import com.app.fooddash.dto.request.UpdateProfileRequest;
+import com.app.fooddash.dto.request.*;
 import com.app.fooddash.dto.response.LoginResponse;
 import com.app.fooddash.dto.response.ProfileResponse;
 import com.app.fooddash.dto.response.RestaurantSummaryDto;
@@ -13,16 +10,14 @@ import com.app.fooddash.entity.User;
 import com.app.fooddash.enums.RoleType;
 import com.app.fooddash.exception.BadRequestException;
 import com.app.fooddash.exception.ResourceNotFoundException;
+import com.app.fooddash.mapper.RestaurantMapper;
+import com.app.fooddash.mapper.UserMapper;
 import com.app.fooddash.repository.RestaurantRepository;
 import com.app.fooddash.repository.RoleRepository;
 import com.app.fooddash.repository.UserRepository;
-import com.app.fooddash.security.CustomUserDetailsService;
 import com.app.fooddash.security.JwtService;
 import com.app.fooddash.service.AuthService;
 import lombok.RequiredArgsConstructor;
-
-import java.util.List;
-
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -31,258 +26,199 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-	private final UserRepository userRepository;
-	private final RoleRepository roleRepository;
-	private final RestaurantRepository restaurantRepository;
-	private final PasswordEncoder passwordEncoder;
-	private final AuthenticationManager authenticationManager;
-	private final JwtService jwtService;
+    private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
+    private final RestaurantRepository restaurantRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtService jwtService;
 
-	@Override
-	public void register(RegisterRequest request) {
+    // ✅ Inject mappers
+    private final UserMapper userMapper;
+    private final RestaurantMapper restaurantMapper;
 
-		if (userRepository.existsByEmail(request.getEmail())) {
-			throw new BadRequestException("Email already registered");
-		}
+    @Override
+    public void register(RegisterRequest request) {
 
-		Role role = roleRepository.findByName(request.getRole())
-				.orElseThrow(() -> new ResourceNotFoundException("Role not found"));
+        log.info("Register attempt for email={}", request.getEmail());
 
-		User user = new User();
-		user.setFullName(request.getFullName());
-		user.setEmail(request.getEmail());
-		user.setPassword(passwordEncoder.encode(request.getPassword()));
-		user.getRoles().add(role);
+        if (userRepository.existsByEmail(request.getEmail())) {
+            log.warn("Registration failed. Email already exists: {}", request.getEmail());
+            throw new BadRequestException("Email already registered");
+        }
 
-		userRepository.save(user);
-	}
+        Role role = roleRepository.findByName(request.getRole())
+                .orElseThrow(() -> {
+                    log.error("Role not found: {}", request.getRole());
+                    return new ResourceNotFoundException("Role not found");
+                });
 
-//    @Override
-//    public LoginResponse login(LoginRequest request) {
-//
-//        // 1️⃣ Authenticate user
-//        Authentication authentication = authenticationManager.authenticate(
-//                new UsernamePasswordAuthenticationToken(
-//                        request.getEmail(),
-//                        request.getPassword()
-//                )
-//        );
-//
-//        // 2️⃣ Get authenticated user (Spring Security User)
-//        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-//
-//        // 3️⃣ Extract role safely
-//        String role = userDetails.getAuthorities()
-//                .stream()
-//                .findFirst()
-//                .orElseThrow(() -> new RuntimeException("Role not found"))
-//                .getAuthority();
-//
-//        // 4️⃣ Generate token
-//        String token = jwtService.generateToken(userDetails.getUsername());
-//
-//        return new LoginResponse(token, role);
-//    }
+        User user = new User();
+        user.setFullName(request.getFullName());
+        user.setEmail(request.getEmail());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.getRoles().add(role);
 
-//    @Override
-//    public LoginResponse login(LoginRequest request) {
-//
-//        // 1️⃣ Authenticate user
-//        Authentication authentication = authenticationManager.authenticate(
-//                new UsernamePasswordAuthenticationToken(
-//                        request.getEmail(),
-//                        request.getPassword()
-//                )
-//        );
-//
-//        // 2️⃣ Get authenticated user
-//        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-//
-//        // 3️⃣ Extract role
-//        String role = userDetails.getAuthorities()
-//                .stream()
-//                .findFirst()
-//                .orElseThrow(() -> new ResourceNotFoundException("Role not found"))
-//                .getAuthority();
-//
-//        // 4️⃣ Fetch full user entity from DB
-//        User user = userRepository.findByEmail(userDetails.getUsername())
-//                .orElseThrow(() -> new BadRequestException("User not found"));
-//
-//        // 5️⃣ Generate token
-//        String token = jwtService.generateToken(userDetails.getUsername());
-//
-//        // 6️⃣ Return token + role + name
-//        return new LoginResponse(
-//                token,
-//                role,
-//                user.getFullName(),
-//                
-//        );
-//    }
-	@Override
-	public LoginResponse login(LoginRequest request) {
+        userRepository.save(user);
 
-		Authentication authentication = authenticationManager
-				.authenticate(new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+        log.info("User registered successfully. email={}, role={}", request.getEmail(), request.getRole());
+    }
 
-		UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+    @Override
+    public LoginResponse login(LoginRequest request) {
 
-		String role = userDetails.getAuthorities().stream().findFirst()
-				.orElseThrow(() -> new ResourceNotFoundException("Role not found")).getAuthority();
+        log.info("Login attempt for email={}", request.getEmail());
 
-		User user = userRepository.findByEmail(userDetails.getUsername())
-				.orElseThrow(() -> new BadRequestException("User not found"));
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        request.getEmail(),
+                        request.getPassword()
+                )
+        );
 
-//		String token = jwtService.generateToken(userDetails.getUsername());
-		String accessToken = jwtService.generateAccessToken(user.getEmail());
-		String refreshToken = jwtService.generateRefreshToken(user.getEmail());
+        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
 
-		List<RestaurantSummaryDto> restaurantDtos = List.of();
+        String role = userDetails.getAuthorities().stream().findFirst()
+                .orElseThrow(() -> {
+                    log.error("Role not found during login for email={}", request.getEmail());
+                    return new ResourceNotFoundException("Role not found");
+                })
+                .getAuthority();
 
-		if (role.equals("RESTAURANT_OWNER")) {
+        User user = userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> {
+                    log.error("User not found after authentication. email={}", userDetails.getUsername());
+                    return new BadRequestException("User not found");
+                });
 
-			List<Restaurant> restaurants = restaurantRepository.findByOwner(user);
+        String accessToken = jwtService.generateAccessToken(user.getEmail());
+        String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
-			restaurantDtos = restaurants.stream()
-					.map(r -> RestaurantSummaryDto.builder().id(r.getId()).name(r.getName()).build()).toList();
-		}
+        List<RestaurantSummaryDto> restaurantDtos = List.of();
 
-//        return LoginResponse.builder()
-//                .accessToken(token)
-//                .role(role)
-//                .fullname(user.getFullName())
-//                .restaurants(restaurantDtos)
-//                .build();
-		return new LoginResponse(accessToken, refreshToken, role, user.getFullName(), restaurantDtos);
-	}
+        if (role.equals("RESTAURANT_OWNER")) {
+            List<Restaurant> restaurants = restaurantRepository.findByOwner(user);
+            restaurantDtos = restaurantMapper.toSummaryDtoList(restaurants);
+        }
 
-//	@Override
-//	public LoginResponse refreshToken(String refreshToken) {
-//
-//		try {
-//			String email = jwtService.extractUsername(refreshToken);
-//
-//			if (!jwtService.isTokenValid(refreshToken, email)) {
-//				throw new RuntimeException("Invalid refresh token");
-//			}
-//
-//			User user = userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
-//
-//			String newAccessToken = jwtService.generateAccessToken(email);
-//			System.out.println("Refresh token received: " + refreshToken);
-//			System.out.println("Extracted email: " + email);
-//			
-//			 // ✅ FIX: Get role safely from Set
-////		    String roleName = user.getRoles()
-////		            .stream()
-////		            .findFirst()
-////		            .map(Enum::name)
-////		            .orElse("USER");
-//
-//			List<RestaurantSummaryDto> restaurants = List.of();
-//			
-//
-//
-//			if (((Enum<RoleType>) user.getRoles()).name().equals("OWNER")) {
-//				restaurants = user.getRestaurants().stream().map(r -> new RestaurantSummaryDto(r.getId(), r.getName()))
-//						.toList();
-//			}
-//
-//			return new LoginResponse(newAccessToken, refreshToken, ((Enum<RoleType>) user.getRoles()).name(),
-//					user.getFullName(), restaurants);
-//
-//		} catch (Exception e) {
-//			e.printStackTrace(); 
-//			throw new RuntimeException("Refresh failed");
-//		}
-//	}
-	@Override
-	public LoginResponse refreshToken(String refreshToken) {
+        log.info("Login successful. email={}, role={}", user.getEmail(), role);
 
-		try {
-			String email = jwtService.extractUsername(refreshToken);
+        return new LoginResponse(
+                accessToken,
+                refreshToken,
+                role,
+                user.getFullName(),
+                restaurantDtos
+        );
+    }
 
-			if (!jwtService.isTokenValid(refreshToken, email)) {
-				throw new RuntimeException("Invalid refresh token");
-			}
+    @Override
+    public LoginResponse refreshToken(String refreshToken) {
 
-			User user = userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
+        log.info("Refresh token attempt");
 
-			String newAccessToken = jwtService.generateAccessToken(email);
+        try {
+            String email = jwtService.extractUsername(refreshToken);
 
-			System.out.println("Refresh token received: " + refreshToken);
-			System.out.println("Extracted email: " + email);
+            if (!jwtService.isTokenValid(refreshToken, email)) {
+                log.warn("Invalid refresh token attempt for email={}", email);
+                throw new RuntimeException("Invalid refresh token");
+            }
 
-			// ✅ FIX: Extract role name from Role entity
-			String roleName = user.getRoles().stream().findFirst().map(role -> role.getName().name()) // <-- IMPORTANT
-					.orElse("USER");
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> {
+                        log.error("User not found during refresh. email={}", email);
+                        return new RuntimeException("User not found");
+                    });
 
-			List<RestaurantSummaryDto> restaurants = List.of();
+            String newAccessToken = jwtService.generateAccessToken(email);
 
-			if (roleName.equals("OWNER")) {
-				restaurants = user.getRestaurants().stream().map(r -> new RestaurantSummaryDto(r.getId(), r.getName()))
-						.toList();
-			}
+            String roleName = user.getRoles().stream()
+                    .findFirst()
+                    .map(role -> role.getName().name())
+                    .orElse("USER");
 
-			return new LoginResponse(newAccessToken, refreshToken, roleName, user.getFullName(), restaurants);
+            List<RestaurantSummaryDto> restaurants = List.of();
 
-		} catch (Exception e) {
-			e.printStackTrace();
-			throw new RuntimeException("Refresh failed");
-		}
-	}
+            if (roleName.equals("OWNER")) {
+                restaurants = restaurantMapper.toSummaryDtoList(user.getRestaurants());
+            }
 
-	private User getCurrentUser() {
+            log.info("Token refreshed successfully for email={}", email);
 
-		String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            return new LoginResponse(
+                    newAccessToken,
+                    refreshToken,
+                    roleName,
+                    user.getFullName(),
+                    restaurants
+            );
 
-		return userRepository.findByEmail(email).orElseThrow(() -> new BadRequestException("User not found"));
-	}
+        } catch (Exception e) {
+            log.error("Refresh token failed: {}", e.getMessage(), e);
+            throw new RuntimeException("Refresh failed");
+        }
+    }
 
-	@Override
-	public ProfileResponse getProfile() {
+    private User getCurrentUser() {
 
-		User user = getCurrentUser();
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
 
-		RoleType roleType = user.getRoles().stream().findFirst().map(role -> role.getName()) // adjust getter if needed
-				.orElse(null);
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> {
+                    log.error("Current user not found with email={}", email);
+                    return new BadRequestException("User not found");
+                });
+    }
 
-		return ProfileResponse.builder().id(user.getId()).name(user.getFullName()).email(user.getEmail()).role(roleType)
-				.build();
-	}
+    @Override
+    public ProfileResponse getProfile() {
 
-	@Override
-	public ProfileResponse updateProfile(UpdateProfileRequest request) {
+        User user = getCurrentUser();
 
-		User user = getCurrentUser();
+        log.info("Fetching profile for user={}", user.getEmail());
 
-		user.setFullName(request.getFullName());
-		userRepository.save(user);
+        return userMapper.toProfileResponse(user);
+    }
 
-		RoleType roleType = user.getRoles().stream().findFirst().map(role -> role.getName()) // adjust getter if needed
-				.orElse(null);
+    @Override
+    public ProfileResponse updateProfile(UpdateProfileRequest request) {
 
-		return ProfileResponse.builder().id(user.getId()).name(user.getFullName()).email(user.getEmail()).role(roleType)
-				.build();
-	}
+        User user = getCurrentUser();
 
-	@Override
-	public void changePassword(ChangePasswordRequest request) {
+        log.info("Updating profile for user={}", user.getEmail());
 
-		User user = getCurrentUser();
+        user.setFullName(request.getFullName());
+        userRepository.save(user);
 
-		if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
-			throw new BadRequestException("Current password is incorrect");
-		}
+        log.info("Profile updated successfully for user={}", user.getEmail());
 
-		user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        return userMapper.toProfileResponse(user);
+    }
 
-		userRepository.save(user);
-	}
+    @Override
+    public void changePassword(ChangePasswordRequest request) {
 
+        User user = getCurrentUser();
+
+        log.info("Password change attempt for user={}", user.getEmail());
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            log.warn("Incorrect current password for user={}", user.getEmail());
+            throw new BadRequestException("Current password is incorrect");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        log.info("Password changed successfully for user={}", user.getEmail());
+    }
 }

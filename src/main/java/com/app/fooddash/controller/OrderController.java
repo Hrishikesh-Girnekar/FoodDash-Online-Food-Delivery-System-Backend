@@ -90,14 +90,6 @@ public class OrderController {
 		return ResponseEntity.ok(new ApiResponse<>(true, "Delivery partner assigned successfully", null));
 
 	}
-//	@PutMapping("/admin/{orderId}/auto-assign")
-//	@PreAuthorize("hasAuthority('ADMIN')")
-//	public ResponseEntity<ApiResponse<Void>> autoAssign(@PathVariable Long orderId) {
-//
-//		orderService.assignDeliveryPartner(orderId);
-//
-//		return ResponseEntity.ok(new ApiResponse<>(true, "Delivery partner auto-assigned", null));
-//	}
 
 	@PutMapping("/delivery/{orderId}/deliver")
 	@PreAuthorize("hasAuthority('DELIVERY_PARTNER')")
@@ -138,14 +130,5 @@ public class OrderController {
 
 		return ResponseEntity.ok(new ApiResponse<>(true, "Delivery partners fetched successfully", data));
 	}
-
-//	@PutMapping("/delivery/{orderId}/verify-otp")
-//	@PreAuthorize("hasAuthority('DELIVERY_PARTNER')")
-//	public ResponseEntity<ApiResponse<Void>> verifyOtp(@PathVariable Long orderId, @RequestParam String otp) {
-//
-//		orderService.verifyOtp(orderId, otp);
-//
-//		return ResponseEntity.ok(new ApiResponse<>(true, "OTP verified, order delivered", null));
-//	}
 
 }
